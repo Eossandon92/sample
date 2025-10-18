@@ -1944,7 +1944,7 @@ export const { speed } = registerControl('speed');
  * @name stretch
  * @param {number | Pattern} factor between `-4` and `inf`. Positive increases pitch, 0 does nothing, negative decreases the pitch.
  * @example
- * s("gm_flute").stretch("<3 2 1 0 -2>")
+ * s("gm_flute").stretch("<2 1 0 -2>")
  *
  */
 export const { stretch } = registerControl('stretch');
