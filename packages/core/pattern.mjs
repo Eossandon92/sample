@@ -25,7 +25,7 @@ import {
   stringifyValues,
 } from './util.mjs';
 import drawLine from './drawLine.mjs';
-import { logger } from './logger.mjs';
+import { errorLogger, logger } from './logger.mjs';
 
 let stringParser;
 
@@ -414,7 +414,7 @@ export class Pattern {
     try {
       return this.query(new State(new TimeSpan(begin, end), controls));
     } catch (err) {
-      logger(`[query]: ${err.message}`, 'error');
+      errorLogger(err, 'query');
       return [];
     }
   }
@@ -2234,7 +2234,7 @@ export const brak = register('brak', function (pat) {
 });
 
 /**
- * Reverse all haps in a pattern
+ * Reverse all cycles in a pattern. See also `revv` for reversing a whole pattern.
  *
  * @name rev
  * @memberof Pattern
@@ -2265,6 +2265,23 @@ export const rev = register(
   false,
   true,
 );
+
+/**
+ * Reverse a whole pattern. See also `rev` for reversing each cycle.
+ *
+ * @name revv
+ * @memberof Pattern
+ * @returns Pattern
+ * @example
+ * // This is the same as `<[g e] [d c]>`. If `rev()` is used, you get
+ * // the same as `<[d c] [g e]>`, where each cycle reverses, but the order of
+ * // cycles stays the same.
+ * note("<[c d] [e g]>").revv()
+ */
+export const revv = register('revv', function (pat) {
+  const negateSpan = (span) => new TimeSpan(Fraction(0).sub(span.end), Fraction(0).sub(span.begin));
+  return pat.withQuerySpan(negateSpan).withHapSpan(negateSpan);
+});
 
 /** Like press, but allows you to specify the amount by which each
  * event is shifted. pressBy(0.5) is the same as press, while
@@ -3653,3 +3670,66 @@ for (const name of distAlgoNames) {
     return this.distort(argsPat);
   };
 }
+
+/**
+ * Turns a list of patterns into a single pattern which outputs list-values
+ *
+ * @name parray
+ * @returns Pattern
+ */
+export const parray = (pats) => {
+  const pack = (...xs) => xs;
+  let acc = pure(curry(pack, null, pats.length));
+  for (const p of pats) acc = acc.appBoth(reify(p));
+  return acc;
+};
+
+const _ensureListPattern = (list) => {
+  if (Array.isArray(list)) {
+    return parray(list);
+  }
+  return reify(list);
+};
+
+/**
+ * Scale the magnitude of the harmonics of one of the core synths ('sine', 'tri', 'saw', ..)
+ *
+ * Can also be used to create a new synth via `s('user').partials(...)`
+ *
+ * @name partials
+ * @param {number[] | Pattern} magnitudes List of [0, 1] magnitudes for partials. 0th entry is the fundamental harmonic (i.e. DC offset is skipped)
+ * @example
+ * s("user").seg(16).n(irand(8)).scale("A:major")
+ *   .partials([1, 0, 1, 0, 0, 1])
+ * @example
+ * s("saw").seg(8).n(irand(12)).scale("G#:minor")
+ *   .partials(binaryL(irand(256).add("1")))
+ */
+Pattern.prototype.partials = function (list) {
+  return this.withValue((v) => (l) => ({ ...v, partials: l })).appLeft(_ensureListPattern(list));
+};
+
+// Also create a top-level function
+export const partials = (list) => {
+  return _ensureListPattern(list).as('partials');
+};
+
+/**
+ * Rotates the harmonics of one of the core synths ('sine', 'tri', 'saw', 'user', ..) by a list of phases
+ *
+ * @name phases
+ * @param {number[] | Pattern} phases List of [0, 1) phases for partials. 0th entry is the fundamental phase (i.e. DC offset is skipped)
+ * @example
+ * // Phase cancellation
+ * s("saw").seg(8).n(irand(12)).scale("G#1:minor")
+ *   .partials(partials([1, 1, 1]))
+ *   .superimpose(x => x.phases([0.5, 0.5, 0.5]))
+ */
+Pattern.prototype.phases = function (list) {
+  return this.withValue((v) => (l) => ({ ...v, phases: l })).appLeft(_ensureListPattern(list));
+};
+
+// Also create a top-level function
+export const phases = (list) => {
+  return _ensureListPattern(list).as('phases');
+};
