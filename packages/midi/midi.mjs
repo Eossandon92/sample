@@ -23,16 +23,14 @@ import { noteToMidi, getControlName } from '@strudel/core';
 import { Note } from 'webmidi';
 import { getAudioContext } from '@strudel/webaudio';
 import { scheduleAtTime } from '../superdough/helpers.mjs';
+import { getMidiDeviceNamesString, getDevice } from './util.mjs';
+import { MidiInput } from './input.mjs';
 
 // if you use WebMidi from outside of this package, make sure to import that instance:
 export const { WebMidi } = _WebMidi;
 
 function supportsMidi() {
   return typeof navigator.requestMIDIAccess === 'function';
-}
-
-function getMidiDeviceNamesString(devices) {
-  return devices.map((o) => `'${o.name}'`).join(' | ');
 }
 
 export function enableWebMidi(options = {}) {
@@ -70,29 +68,6 @@ export function enableWebMidi(options = {}) {
       { sysex: true },
     );
   });
-}
-
-function getDevice(indexOrName, devices) {
-  if (!devices.length) {
-    throw new Error(`🔌 No MIDI devices found. Connect a device or enable IAC Driver.`);
-  }
-  if (typeof indexOrName === 'number') {
-    return devices[indexOrName];
-  }
-  const byName = (name) => devices.find((output) => output.name.includes(name));
-  if (typeof indexOrName === 'string') {
-    return byName(indexOrName);
-  }
-  // attempt to default to first IAC device if none is specified
-  const IACOutput = byName('IAC');
-  const device = IACOutput ?? devices[0];
-  if (!device) {
-    throw new Error(
-      `🔌 MIDI device '${device ? device : ''}' not found. Use one of ${getMidiDeviceNamesString(devices)}`,
-    );
-  }
-
-  return IACOutput ?? devices[0];
 }
 
 // send start/stop messages to outputs when repl starts/stops
@@ -138,6 +113,7 @@ function githubPath(base, subpath = '') {
 
 /**
  * configures the default midimap, which is used when no "midimap" port is set
+ * @tags external_io, midi
  * @example
  * defaultmidimap({ lpf: 74 })
  * $: note("c a f e").midi();
@@ -151,6 +127,7 @@ let loadCache = {};
 
 /**
  * Adds midimaps to the registry. Inside each midimap, control names (e.g. lpf) are mapped to cc numbers.
+ * @tags external_io, midi
  * @example
  * midimaps({ mymap: { lpf: 74 } })
  * $: note("c a f e")
@@ -305,6 +282,7 @@ function sendNote(note, velocity, duration, device, midichan, targetTime) {
 
 /**
  * MIDI output: Opens a MIDI output port.
+ * @tags external_io
  * @param {string | number} midiport MIDI device name or index defaulting to 0
  * @param {object} options Additional MIDI configuration options
  * @example
@@ -492,9 +470,9 @@ Pattern.prototype.midi = function (midiport, options = {}) {
 };
 
 /**
- * Initialize a midi device
+ * Initialize a midi input device
  */
-async function _initialize(input) {
+async function _initializeInput(input) {
   if (isPattern(input)) {
     throw new Error(
       `[midi] Midi input cannot be a pattern. Make sure to pass device name with single quotes. Example: midin('${
@@ -502,23 +480,30 @@ async function _initialize(input) {
       }')`,
     );
   }
+
   const initial = await enableWebMidi(); // only returns on first init
-  const device = getDevice(input, WebMidi.inputs);
-  if (!device) {
-    throw new Error(
-      `[midi] Midi device "${input}" not found.. connected devices: ${getMidiDeviceNamesString(WebMidi.inputs)}`,
-    );
-  }
+
+  const instance = midiInputs[input] || new MidiInput(input);
+  midiInputs[input] = instance;
+
   if (initial) {
+    const device = instance.initialDevice;
+
     const otherInputs = WebMidi.inputs.filter((o) => o.name !== device.name);
     logger(
-      `[midi] Midi enabled! Using "${device.name}". ${
-        otherInputs?.length ? `Also available: ${getMidiDeviceNamesString(otherInputs)}` : ''
-      }`,
+      device
+        ? `[midi] Midi enabled! Using "${device.name}". ${
+            otherInputs?.length ? `Also available: ${getMidiDeviceNamesString(otherInputs)}` : ''
+          }`
+        : `[midi] Midi enabled! Waiting for device "${input}"... Currently connected devices: ${getMidiDeviceNamesString(WebMidi.inputs)}`,
     );
   }
-  return device;
+
+  return instance;
 }
+
+// MIDI input wrappers, by specified input string/index
+const midiInputs = {};
 
 /**
  * MIDI input: Opens a MIDI input port to receive MIDI control change messages.
@@ -526,6 +511,7 @@ async function _initialize(input) {
  * The output is a function that accepts a midi cc value to query as well as (optionally) a midi channel
  *
  * @name midin
+ * @tags external_io, midi
  * @param {string | number} input MIDI device name or index defaulting to 0
  * @returns {function(number, number=): Pattern} A function from (cc, channel?) to a pattern.
  *   When queried, the pattern will produces the most recently received midi value (normalized to 0 to 1)
@@ -539,31 +525,10 @@ async function _initialize(input) {
  * note("c a f e").s("saw")
  *   .when(cc(0).gt(0), x => x.postgain(0))
  */
-let listeners = {};
-const refs = {};
-const refsByChan = {};
 export async function midin(input) {
-  const device = await _initialize(input);
-  refs[input] ??= {};
-  refsByChan[input] ??= {};
-  const cc = (cc, chan) => {
-    if (chan !== undefined) {
-      return ref(() => refsByChan[input][cc]?.[chan] || 0);
-    }
-    return ref(() => refs[input][cc] || 0);
-  };
+  const instance = await _initializeInput(input);
 
-  listeners[input] && device.removeListener('midimessage', listeners[input]);
-  listeners[input] = (e) => {
-    const [ccNum, v] = e.dataBytes;
-    const chan = e.message.channel;
-    const scaled = v / 127;
-    refsByChan[input][ccNum] ??= {};
-    refsByChan[input][ccNum][chan] = scaled;
-    refs[input][ccNum] = scaled;
-  };
-  device.addListener('midimessage', listeners[input]);
-  return cc;
+  return instance.createCC.bind(instance);
 }
 
 /**
@@ -573,6 +538,7 @@ export async function midin(input) {
  * note durations
  *
  * @name midikeys
+ * @tags external_io, midi
  * @param {string | number} input MIDI device name or index defaulting to 0
  * @returns {function((number | Pattern)=): Pattern} A function that produces a pattern.
  *   When queried, the pattern will produces the most recently played midi notes and velocities,
@@ -617,7 +583,16 @@ function _triggerKeyboard(input, cps, now, latencyCycles) {
   return true;
 }
 export async function midikeys(input) {
-  const device = await _initialize(input);
+  const instance = await _initializeInput(input);
+
+  // TODO: support unpluggable device usage
+  const device = instance.initialDevice;
+  if (!device) {
+    throw new Error(
+      `[midi] Midi device "${input}" not found.. connected devices: ${getMidiDeviceNamesString(WebMidi.inputs)}`,
+    );
+  }
+
   if (!kHaps[input]) {
     kHaps[input] = [];
   }

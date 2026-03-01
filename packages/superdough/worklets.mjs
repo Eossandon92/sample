@@ -214,7 +214,7 @@ class CoarseProcessor extends AudioWorkletProcessor {
     coarse = Math.max(1, coarse);
     for (let n = 0; n < blockSize; n++) {
       for (let i = 0; i < input.length; i++) {
-        output[i][n] = n % coarse === 0 ? input[i][n] : output[i][n - 1];
+        output[i][n] = n % coarse < 1 ? input[i][n] : output[i][n - 1];
       }
     }
     return true;
@@ -646,14 +646,18 @@ class PhaseVocoderProcessor extends OLAProcessor {
     this.timeCursor += this.hopSize;
   }
 
-  /** Apply Hann window in-place */
+  /** Apply Hann window in-place
+   * @tags internals
+   */
   applyHannWindow(input) {
     for (let i = 0; i < this.blockSize; i++) {
       input[i] *= this.hannWindow[i] * 1.62;
     }
   }
 
-  /** Compute squared magnitudes for peak finding **/
+  /** Compute squared magnitudes for peak finding
+   * @tags internals
+   **/
   computeMagnitudes() {
     let i = 0,
       j = 0;
@@ -667,7 +671,9 @@ class PhaseVocoderProcessor extends OLAProcessor {
     }
   }
 
-  /** Find peaks in spectrum magnitudes **/
+  /** Find peaks in spectrum magnitudes
+   * @tags internals
+   **/
   findPeaks() {
     this.nbPeaks = 0;
     let i = 2;
@@ -688,7 +694,9 @@ class PhaseVocoderProcessor extends OLAProcessor {
     }
   }
 
-  /** Shift peaks and regions of influence by pitchFactor into new specturm */
+  /** Shift peaks and regions of influence by pitchFactor into new specturm
+   * @tags internals
+   */
   shiftPeaks(pitchFactor) {
     // zero-fill new spectrum
     this.freqComplexBufferShifted.fill(0);
@@ -841,7 +849,9 @@ class PulseOscillatorProcessor extends AudioWorkletProcessor {
 
 registerProcessor('pulse-oscillator', PulseOscillatorProcessor);
 
-/**  BYTE BEATS */
+/**  BYTE BEATS
+ * @tags internals
+ */
 const chyx = {
   /*bit*/ bitC: function (x, y, z) {
     return x & y ? z : 0;
@@ -1540,12 +1550,20 @@ class GenericProcessor extends AudioWorkletProcessor {
       this.gateNode?.setValue(0);
       this.gateEnded = true;
     }
-    const outL = outputs[0][0];
-    const outR = outputs[0][1] ?? outputs[0][0];
+    const output = outputs[0];
+    const outL = output[0];
+    const outR = output[1];
     for (let n = 0; n < blockSize; n++) {
       this.genSample(this.playPos, this.nodes, input ? input[n] : 0, this.registers, this.outputs, this.sources);
-      outL[n] = this.outputs[0];
-      outR[n] = this.outputs[1];
+      const left = this.outputs[0];
+      const right = this.outputs[1];
+      // Spread to stereo if possible; else mixdown to mono
+      if (outR) {
+        outL[n] = left;
+        outR[n] = right;
+      } else {
+        outL[n] = 0.5 * (left + right);
+      }
       this.playPos += 1 / sampleRate;
     }
     return true;
