@@ -536,7 +536,7 @@ export async function midin(input) {
  *
  * The note length is fixed as Superdough is not currently set up for undetermined
  * note durations
- * 
+ *
  * The 'midichan' control value contains the number of the channel the note is coming from
  * so it could be filtered or manipulated further in the chain.
  *
