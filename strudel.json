@@ -1,9 +1,10 @@
 {
   "_base": "https://raw.githubusercontent.com/Eossandon92/sample/main/sample/",
   "techhh": [
+    "techhh/EDMA_135_Gm_Synth_02_synth_135BPM_Gminor_BANDLAB.wav",
+    "techhh/EDMA_135_Gm_Synth_03_synth_135BPM_Gminor_BANDLAB.wav",
     "techhh/EDMA_135_Gm_SynthPluck_synth_135BPM_Gminor_BANDLAB.wav",
-    "techhh/EDMA_135_Gm_Bass_05_bass_135BPM_Gminor_BANDLAB.wav",
-    "techhh/FL_FTP_Kit5_Synth_Loop_Pad_Deep_Emin_128_synth_128BPM_Eminor_BANDLAB.wav"
+    "techhh/EDMA_135_Am_Synth_01_synth_135BPM_Aminor_BANDLAB.wav"
   ],
   "kick":[
     "kick/LUKG_134_Kicks_01_kick_134BPM_BANDLAB.wav",
